@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cilium-config
+  namespace: kube-system
+data:
+  # Enable load balancer algorithm annotation support
+  load-balancer-algorithm-annotation: "true"
+  # Set default load balancer algorithm to least connection
+  load-balancer-algorithm: "least-conn"
+  # Enable BPF-based load balancing
+  enable-bpf-lb: "true"
+  # Enable session affinity for better least connection tracking
+  enable-session-affinity: "true"
+  # Enable connection tracking for accurate connection counting
+  enable-conntrack: "true"
+  # Enable BPF connection tracking accounting
+  bpf-ct-accounting: "true"
+  # Enable BPF map events for connection tracking
+  bpf-map-events: "true"
+  # Set reasonable connection tracking GC interval
+  conntrack-gc-interval: "0.1s"
+  # Configure connection tracking timeouts
+  ct-timeout-regular-tcp: "300s"
+  ct-timeout-established-tcp: "86400s"
+  ct-timeout-close-tcp: "10s"
+  ct-timeout-close-wait-tcp: "10s"
+  ct-timeout-fin-wait-tcp: "10s" 

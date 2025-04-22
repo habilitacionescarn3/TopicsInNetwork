@@ -767,7 +767,7 @@ lb6_select_backend_id_maglev(struct __ctx_buff *ctx __maybe_unused,
 	index = __hash_from_tuple_v6(tuple, sport, dport) % LB_MAGLEV_LUT_SIZE;
 	return map_array_get_32(backend_ids, index, (LB_MAGLEV_LUT_SIZE - 1) << 2);
 }
-#endif  /* defined(LB_SELECTION_PER_SERVICE) || LB_SELECTION == LB_SELECTION_RANDOM */
+#endif  /* defined(LB_SELECTION_PER_SERVICE) || LB_SELECTION == LB_SELECTION_MAGLEV */
 
 #ifdef LB_SELECTION_PER_SERVICE
 static __always_inline __u32 lb6_algorithm(const struct lb6_service *svc)
@@ -785,15 +785,13 @@ lb6_select_backend_id(struct __ctx_buff *ctx, struct lb6_key *key,
 		return lb6_select_backend_id_maglev(ctx, key, tuple, svc);
 	case LB_SELECTION_RANDOM:
 		return lb6_select_backend_id_random(ctx, key, tuple, svc);
+	case LB_SELECTION_LEAST_CONN:
+		return lb6_select_backend_id_least_conn(ctx, key, tuple, svc);
 	default:
 		return 0;
 	}
 }
-#elif LB_SELECTION == LB_SELECTION_RANDOM
-# define lb6_select_backend_id	lb6_select_backend_id_random
-#elif LB_SELECTION == LB_SELECTION_MAGLEV
-# define lb6_select_backend_id	lb6_select_backend_id_maglev
-#elif LB_SELECTION == LB_SELECTION_FIRST
+#elif LB_SELECTION == LB_SELECTION_RANDOM || LB_SELECTION == LB_SELECTION_MAGLEV || LB_SELECTION == LB_SELECTION_FIRST
 /* Backend selection for tests that always chooses first slot. */
 static __always_inline __u32
 lb6_select_backend_id(struct __ctx_buff *ctx __maybe_unused,
@@ -1513,19 +1511,17 @@ lb4_select_backend_id(struct __ctx_buff *ctx, struct lb4_key *key,
 		return lb4_select_backend_id_maglev(ctx, key, tuple, svc);
 	case LB_SELECTION_RANDOM:
 		return lb4_select_backend_id_random(ctx, key, tuple, svc);
+	case LB_SELECTION_LEAST_CONN:
+		return lb4_select_backend_id_least_conn(ctx, key, tuple, svc);
 	default:
 		return 0;
 	}
 }
-#elif LB_SELECTION == LB_SELECTION_RANDOM
-# define lb4_select_backend_id	lb4_select_backend_id_random
-#elif LB_SELECTION == LB_SELECTION_MAGLEV
-# define lb4_select_backend_id	lb4_select_backend_id_maglev
-#elif LB_SELECTION == LB_SELECTION_FIRST
+#elif LB_SELECTION == LB_SELECTION_RANDOM || LB_SELECTION == LB_SELECTION_MAGLEV || LB_SELECTION == LB_SELECTION_FIRST
 /* Backend selection for tests that always chooses first slot. */
 static __always_inline __u32
-lb4_select_backend_id(struct __ctx_buff *ctx,
-		      struct lb4_key *key,
+lb4_select_backend_id(struct __ctx_buff *ctx __maybe_unused,
+		      struct lb4_key *key __maybe_unused,
 		      const struct ipv4_ct_tuple *tuple __maybe_unused,
 		      const struct lb4_service *svc)
 {
@@ -2323,3 +2319,151 @@ __wsum icmp_wsum_accumulate(void *data_start, void *data_end, int sample_len)
 }
 
 #endif /* SERVICE_NO_BACKEND_RESPONSE */
+
+#if defined(LB_SELECTION_PER_SERVICE) || LB_SELECTION == LB_SELECTION_LEAST_CONN
+static __always_inline __u32
+lb4_select_backend_id_least_conn(struct __ctx_buff *ctx,
+                                struct lb4_key *key,
+                                const struct ipv4_ct_tuple *tuple __maybe_unused,
+                                const struct lb4_service *svc)
+{
+#ifdef ENABLE_ACTIVE_CONNECTION_TRACKING
+    /* Backend slot 0 is always reserved for the service frontend. */
+    __u16 slot;
+    __u16 min_slot = 1;
+    struct lb4_backend *be;
+    struct lb_act_key act_key;
+    struct lb_act_value *act_val;
+    __u32 min_conns = UINT32_MAX;
+    
+    /* Find the backend with the least number of active connections */
+    for (slot = 1; slot <= svc->count; slot++) {
+        be = lb4_lookup_backend_slot(ctx, key, slot);
+        if (!be) {
+            cilium_dbg_lb(ctx, DBG_LB4_LOOKUP_BACKEND_SLOT_V2_FAIL, slot, 0);
+            continue;
+        }
+        
+        act_key.svc_id = be->backend_id;
+        act_key.zone = tuple->nexthdr; /* Use protocol as zone */
+        act_val = map_lookup_elem(&cilium_lb_act, &act_key);
+        
+        /* If no connections tracked or fewer connections than current minimum, update minimum */
+        if (!act_val || act_val->opened - act_val->closed < min_conns) {
+            min_conns = act_val ? act_val->opened - act_val->closed : 0;
+            min_slot = slot;
+            
+            /* If no connections, we found our backend */
+            if (min_conns == 0) {
+                cilium_dbg_lb(ctx, DBG_LB4_LEAST_CONN_SELECTED, min_slot, min_conns);
+                break;
+            }
+        }
+    }
+    
+    be = lb4_lookup_backend_slot(ctx, key, min_slot);
+    if (!be) {
+        cilium_dbg_lb(ctx, DBG_LB4_LOOKUP_BACKEND_FAIL, min_slot, 0);
+        return 0;
+    }
+    
+    cilium_dbg_lb(ctx, DBG_LB4_LEAST_CONN_SELECTED, min_slot, min_conns);
+    return be->backend_id;
+#else
+    /* Fallback to random if active connection tracking is not enabled */
+    cilium_dbg_lb(ctx, DBG_LB4_LEAST_CONN_DISABLED, 0, 0);
+    return lb4_select_backend_id_random(ctx, key, tuple, svc);
+#endif /* ENABLE_ACTIVE_CONNECTION_TRACKING */
+}
+#endif /* LB_SELECTION_PER_SERVICE || LB_SELECTION == LB_SELECTION_LEAST_CONN */
+
+#if defined(LB_SELECTION_PER_SERVICE) || LB_SELECTION == LB_SELECTION_LEAST_CONN
+static __always_inline __u32
+lb6_select_backend_id_least_conn(struct __ctx_buff *ctx,
+				 struct lb6_key *key,
+				 const struct ipv6_ct_tuple *tuple __maybe_unused,
+				 const struct lb6_service *svc)
+{
+#ifdef ENABLE_ACTIVE_CONNECTION_TRACKING
+    /* Backend slot 0 is always reserved for the service frontend. */
+    __u16 slot;
+    __u16 min_slot = 1;
+    struct lb6_backend *be;
+    struct lb_act_key act_key;
+    struct lb_act_value *act_val;
+    __u32 min_conns = UINT32_MAX;
+    
+    /* Find the backend with the least number of active connections */
+    for (slot = 1; slot <= svc->count; slot++) {
+        be = lb6_lookup_backend_slot(ctx, key, slot);
+        if (!be) {
+            cilium_dbg_lb(ctx, DBG_LB6_LOOKUP_BACKEND_SLOT_V2_FAIL, slot, 0);
+            continue;
+        }
+        
+        act_key.svc_id = be->backend_id;
+        act_key.zone = tuple->nexthdr; /* Use protocol as zone */
+        act_val = map_lookup_elem(&cilium_lb_act, &act_key);
+        
+        /* If no connections tracked or fewer connections than current minimum, update minimum */
+        if (!act_val || act_val->opened - act_val->closed < min_conns) {
+            min_conns = act_val ? act_val->opened - act_val->closed : 0;
+            min_slot = slot;
+            
+            /* If no connections, we found our backend */
+            if (min_conns == 0) {
+                cilium_dbg_lb(ctx, DBG_LB6_LEAST_CONN_SELECTED, min_slot, min_conns);
+                break;
+            }
+        }
+    }
+    
+    be = lb6_lookup_backend_slot(ctx, key, min_slot);
+    if (!be) {
+        cilium_dbg_lb(ctx, DBG_LB6_LOOKUP_BACKEND_FAIL, min_slot, 0);
+        return 0;
+    }
+    
+    cilium_dbg_lb(ctx, DBG_LB6_LEAST_CONN_SELECTED, min_slot, min_conns);
+    return be->backend_id;
+#else
+    /* Fallback to random if active connection tracking is not enabled */
+    cilium_dbg_lb(ctx, DBG_LB6_LEAST_CONN_DISABLED, 0, 0);
+    return lb6_select_backend_id_random(ctx, key, tuple, svc);
+#endif /* ENABLE_ACTIVE_CONNECTION_TRACKING */
+}
+#endif /* LB_SELECTION_PER_SERVICE || LB_SELECTION == LB_SELECTION_LEAST_CONN */
+
+static __always_inline __maybe_unused int
+lb4_select_backend_id(struct __ctx_buff *ctx __maybe_unused,
+                     struct lb4_key *key __maybe_unused,
+                     const struct ipv4_ct_tuple *tuple __maybe_unused,
+                     struct lb4_service *svc)
+{
+    __u16 count = svc->count.backend_count;
+    __u16 slot = 0;
+
+    if (count == 0)
+        return -ENOENT;
+
+    /* Backend slot 0 is reserved for the service frontend. */
+    if (count == 1)
+        return 1;
+
+    switch (svc->backend_alg) {
+    case LB_ALG_RANDOM:
+        slot = lb4_select_backend_id_random(ctx, key, tuple, svc);
+        break;
+    case LB_ALG_MAGLEV:
+        slot = lb4_select_backend_id_maglev(ctx, key, tuple, svc);
+        break;
+    case LB_ALG_LEAST_CONN:
+        slot = lb4_select_backend_id_least_conn(ctx, key, tuple, svc);
+        break;
+    default:
+        slot = lb4_select_backend_id_round_robin(ctx, key, tuple, svc);
+        break;
+    }
+
+    return slot;
+}

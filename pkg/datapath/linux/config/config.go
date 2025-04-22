@@ -482,9 +482,12 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 	const (
 		selectionRandom = iota + 1
 		selectionMaglev
+		selectionFirst
+		selectionLeastConn
 	)
 	cDefinesMap["LB_SELECTION_RANDOM"] = fmt.Sprintf("%d", selectionRandom)
 	cDefinesMap["LB_SELECTION_MAGLEV"] = fmt.Sprintf("%d", selectionMaglev)
+	cDefinesMap["LB_SELECTION_LEAST_CONN"] = fmt.Sprintf("%d", selectionLeastConn)
 	if option.Config.LoadBalancerAlgorithmAnnotation {
 		cDefinesMap["LB_SELECTION_PER_SERVICE"] = "1"
 	}

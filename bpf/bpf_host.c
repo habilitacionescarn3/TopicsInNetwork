@@ -55,6 +55,8 @@
 #include "lib/vxlan.h"
 #include "lib/l2_responder.h"
 #include "lib/vtep.h"
+#include "lib/least_conn.h"
+
 
  #define host_egress_policy_hook(ctx, src_sec_identity, ext_err) CTX_ACT_OK
  #define host_wg_encrypt_hook(ctx, proto, src_sec_identity)			\

@@ -1214,6 +1214,9 @@ const (
 	// NodePortAlgMaglev is for using maglev consistent hashing for backend selection
 	NodePortAlgMaglev = "maglev"
 
+	// NodePortAlgLeastConn is the value to select backends with the least active connections
+	NodePortAlgLeastConn = "least-conn"
+
 	// DSR dispatch mode to encode service into IP option or extension header
 	DSRDispatchOption = "opt"
 

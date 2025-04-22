@@ -35,7 +35,10 @@ var Cell = cell.Module(
 	cell.Config(defaultConfig),
 )
 
+// Config contains ACT configuration.
 type Config struct {
+	// EnableActiveConnectionTracking enables tracking of active connections by services.
+	// This is required for least connection load balancing.
 	EnableActiveConnectionTracking bool
 }
 
@@ -44,8 +47,9 @@ func (c Config) Flags(fs *pflag.FlagSet) {
 		"Count open and active connections to services, grouped by zones defined in fixed-zone-mapping.")
 }
 
+// defaultConfig is the default configuration for ACT.
 var defaultConfig = Config{
-	EnableActiveConnectionTracking: false,
+	EnableActiveConnectionTracking: true,
 }
 
 type ActiveConnectionTrackingIterateCallback func(*ActiveConnectionTrackerKey, *ActiveConnectionTrackerValue)

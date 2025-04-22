@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cilium-config
+  namespace: kube-system
+data:
+  # Enable active connection tracking for least connections algorithm
+  enable-active-connection-tracking: "true"
+  
+  # Enable BPF connection tracking accounting
+  bpf-ct-accounting: "true"
+  
+  # Enable load balancer algorithm annotation
+  load-balancer-algorithm-annotation: "true"
+  
+  # Set global default algorithm to least-conn
+  load-balancer-algorithm: "least-conn"
+  
+  # Enable connection tracking for accurate counting
+  enable-conntrack: "true"
+  
+  # Configure connection tracking maps
+  bpf-lb-map-max-entries: "65536"
+  bpf-lb-act-map-max-entries: "131072"
+  
+  # Enable Hubble with flow metrics for monitoring
+  enable-hubble: "true"
+  hubble-socket-path: "/var/run/cilium/hubble.sock"
+  hubble-metrics-server: ":9091"
+  hubble-metrics: "flow:sourceContext=identity;destinationContext=identity;httpStatus;tcp;icmp;drop;port-distribution;service;flow"
+  
+  # Enable Hubble UI
+  hubble-ui-enabled: "true"
+  
+  # Set reasonable connection tracking GC interval
+  conntrack-gc-interval: "0.1s"
+  
+  # Configure connection tracking timeouts
+  bpf-ct-timeout-tcp-established: "86400s"
+  bpf-ct-timeout-tcp-closing: "10s" 

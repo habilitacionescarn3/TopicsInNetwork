@@ -33,6 +33,7 @@
 #include "lib/identity.h"
 #include "lib/policy.h"
 #include "lib/mcast.h"
+#include "lib/least_conn.h"
 
 /* Override LB_SELECTION initially defined in node_config.h to force bpf_lxc to use the random backend selection
  * algorithm for in-cluster traffic. Otherwise, it will fail with the Maglev hash algorithm because Cilium doesn't provision
@@ -306,7 +307,10 @@ int NAME(struct __ctx_buff *ctx)						\
 		lb4_ctx_restore_state(ctx, &ct_state_new, &proxy_port,		\
 				      &cluster_id, false);			\
 		if (ct_state_new.rev_nat_index)					\
-			scope = SCOPE_FORWARD;					\
+			{
+				scope = SCOPE_FORWARD;
+				increment_conn_count(map, tuple);
+			}
 		if (is_defined(ENABLE_L7_LB) && proxy_port)			\
 			scope = SCOPE_FORWARD;					\
 		if (is_defined(ENABLE_L7_LB) &&					\
